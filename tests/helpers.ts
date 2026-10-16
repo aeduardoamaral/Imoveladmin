@@ -67,6 +67,7 @@ export async function createAdministradora(nome = 'Adm Teste'): Promise<string> 
       `INSERT INTO administradoras (razao_social, cnpj, email) VALUES ($1, $2, 'contato@adm.com.br') RETURNING id`,
       [nome, cnpj],
     );
+    await tx.query(`SELECT seed_plano_contas($1)`, [rows[0].id]);
     return rows[0].id as string;
   });
 }

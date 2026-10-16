@@ -96,9 +96,10 @@ export async function condominioRoutes(app: FastifyInstance): Promise<void> {
     const body = dados.extend({ administradoraId: zUuid.nullish() }).parse(req.body);
     const administradoraId = resolveAdministradora(p, body.administradoraId);
     const row = await withTx(dbContext(p), async (tx) => {
-      const { rows: adm } = await tx.query(`SELECT status FROM administradoras WHERE id = $1`, [administradoraId]);
+      const { rows: adm } = await tx.query(`SELECT status, opera_condominios FROM administradoras WHERE id = $1`, [administradoraId]);
       if (!adm[0]) throw notFound('Administradora não encontrada');
       if (adm[0].status !== 'ATIVA') throw badRequest('Administradora não está ativa');
+      if (!adm[0].opera_condominios) throw badRequest('Administradora não opera com administração de condomínios');
       const { rows } = await tx.query(
         `INSERT INTO condominios (administradora_id, nome, cnpj, tipo, num_unidades, num_blocos, cep, logradouro,
                                   numero, complemento, bairro, cidade, uf, created_by)

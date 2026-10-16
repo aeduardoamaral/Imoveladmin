@@ -261,7 +261,14 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/auth/me', { preHandler: authenticate }, async (req) => {
     const p = requirePrincipal(req);
+    const adm = p.administradoraId
+      ? await withTx({ role: 'tenant', tenantId: p.administradoraId }, async (tx) =>
+          (await tx.query(`SELECT razao_social, opera_condominios, opera_locacao FROM administradoras WHERE id = $1`, [p.administradoraId])).rows[0])
+      : null;
     return {
+      administradora: adm
+        ? { id: p.administradoraId, razaoSocial: adm.razao_social, operaCondominios: adm.opera_condominios, operaLocacao: adm.opera_locacao }
+        : null,
       id: p.userId,
       nome: p.nome,
       email: p.email,

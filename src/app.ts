@@ -9,6 +9,9 @@ import { HttpError } from './errors.js';
 import { administradoraRoutes } from './routes/administradoras.js';
 import { authRoutes } from './routes/auth.js';
 import { condominioRoutes } from './routes/condominios.js';
+import { financeiroCadastrosRoutes } from './routes/financeiro/cadastros.js';
+import { financeiroLancamentosRoutes } from './routes/financeiro/lancamentos.js';
+import { financeiroRelatoriosRoutes } from './routes/financeiro/relatorios.js';
 import { masterRoutes } from './routes/master.js';
 import { usuarioRoutes } from './routes/usuarios.js';
 
@@ -72,6 +75,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
     }
     const pgCode = (err as { code?: string }).code;
     if (pgCode === '23505') return reply.status(409).send({ erro: 'CONFLITO', mensagem: 'Registro já existe (CNPJ, CPF ou e-mail duplicado)' });
+    if (pgCode === '23503') return reply.status(400).send({ erro: 'REFERENCIA_INVALIDA', mensagem: 'Categoria, conta ou condomínio inválido para esta administradora' });
     if (pgCode === '42501') return reply.status(403).send({ erro: 'ACESSO_NEGADO', mensagem: 'Acesso negado' });
     if (pgCode === '23514' || pgCode === '22P02') return reply.status(400).send({ erro: 'REQUISICAO_INVALIDA', mensagem: 'Dados inválidos' });
     const status = (err as { statusCode?: number }).statusCode;
@@ -89,6 +93,9 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(usuarioRoutes);
   await app.register(condominioRoutes);
   await app.register(masterRoutes);
+  await app.register(financeiroCadastrosRoutes);
+  await app.register(financeiroLancamentosRoutes);
+  await app.register(financeiroRelatoriosRoutes);
 
   return app;
 }

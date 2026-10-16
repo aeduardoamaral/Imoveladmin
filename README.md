@@ -1,12 +1,11 @@
 # ImovelAdmin
 
-Plataforma de administração de condomínios. Este repositório contém a **Camada 1 — Cadastros**:
+Plataforma para administradoras de imóveis — administração de condomínios, administração de locação ou as duas operações.
 
-- **Master** da plataforma: cadastra administradoras e acessa qualquer módulo, empresa ou usuário.
-- **Administradoras**: cadastram os condomínios que atendem e os próprios colaboradores.
-- **Condomínios**: vinculados a uma única administradora.
+- **Camada 1 — Cadastros:** Master da plataforma, administradoras, colaboradores e condomínios.
+- **Camada 2 — Financeiro da administradora:** plano de contas, contas bancárias, lançamentos de receitas e despesas (contas a pagar/receber), DRE, fluxo de caixa e painel gerencial.
 
-Os próximos módulos (moradores, síndicos, conselheiros, fornecedores, pasta contábil, aluguel, RH etc.) serão construídos sobre esta base.
+Os próximos módulos (processos de locação e de condomínio, moradores, síndicos, conselheiros, fornecedores, pasta contábil, RH etc.) serão construídos sobre esta base e alimentarão o financeiro.
 
 ## Stack
 
@@ -20,8 +19,10 @@ Os próximos módulos (moradores, síndicos, conselheiros, fornecedores, pasta c
 | Papel | Escopo | Pode |
 |---|---|---|
 | `MASTER` | Toda a plataforma | Cadastrar/editar/suspender administradoras; criar outros Masters; criar usuários e condomínios em qualquer administradora; acesso assistido a qualquer usuário; auditoria; sessões |
-| `ADMIN_GESTOR` | Própria administradora | Cadastrar/editar condomínios; cadastrar, suspender e resetar MFA de colaboradores |
-| `ADMIN_COLABORADOR` | Própria administradora | Consultar condomínios |
+| `ADMIN_GESTOR` (proprietário/gerente) | Própria administradora | Cadastrar/editar condomínios; cadastrar, suspender e resetar MFA de colaboradores; plano de contas e contas bancárias; estornar e cancelar lançamentos; DRE, fluxo de caixa, saldos e painel |
+| `ADMIN_COLABORADOR` | Própria administradora | Consultar condomínios; lançar receitas e despesas, editar pendentes e dar baixa |
+
+O **tipo de operação** da administradora (`operaCondominios`, `operaLocacao` — ao menos um) é definido pelo Master e liga/desliga os módulos correspondentes.
 
 ## Segurança
 
@@ -58,6 +59,17 @@ Os próximos módulos (moradores, síndicos, conselheiros, fornecedores, pasta c
 - Cabeçalhos de segurança (HSTS, CSP, `no-referrer`, `nosniff`), CORS por lista de origens, proteção CSRF por cabeçalho no refresh, `Cache-Control: no-store`.
 - Logs nunca registram senhas, tokens, cookies ou códigos.
 - Não há exclusão física de administradoras, usuários ou condomínios — apenas mudança de status, preservando o histórico.
+
+## Financeiro da administradora (Camada 2)
+
+- **Plano de contas**: cada administradora nasce com 21 categorias padrão do setor (taxa de administração de condomínios e de locação, intermediação, impostos, folha, aluguel do escritório, comissões etc.), agrupadas para a DRE. O gestor pode criar, renomear e desativar categorias.
+- **Contas financeiras**: caixa, conta corrente, poupança e aplicação, com saldo inicial.
+- **Lançamentos**: receita ou despesa, com competência, vencimento, contraparte (cliente/fornecedor), documento (nº da NF/boleto), vínculo opcional com um condomínio (centro de resultado) e repetição mensal (2 a 60 meses). Situação: pendente, atrasado, pago ou cancelado.
+- **Regras**: só lançamentos pendentes podem ser editados; pago exige estorno pela gestão antes; cancelamento e estorno exigem motivo e ficam na auditoria (com valores de antes e depois).
+- **Relatórios**: DRE gerencial por competência ou por caixa (filtrável por condomínio), fluxo de caixa mensal realizado + previsto com saldo projetado, saldos por conta.
+- **Painel**: resultado do mês (competência e caixa), margem, a receber/a pagar (vencidos e próximos 30 dias), saldos, série de 12 meses, despesas por grupo, resultado por condomínio e próximos vencimentos.
+- **Valores** são trafegados como texto com 2 casas (`"1500.00"`) e calculados em centavos — sem erro de arredondamento.
+- **Integridade**: chaves compostas no banco impedem que um lançamento aponte para categoria, conta ou condomínio de outra administradora, além do RLS.
 
 ## Como rodar
 
@@ -139,6 +151,25 @@ Todas as rotas (exceto login/MFA/convite/refresh) exigem `Authorization: Bearer 
 | GET | `/master/sessoes` | Sessões ativas (`usuarioId`) |
 | POST | `/master/sessoes/:id/revogar` | Derruba uma sessão |
 
+**Financeiro** (o Master informa `administradoraId` em todas as rotas)
+
+| Método | Rota | Quem | Descrição |
+|---|---|---|---|
+| GET | `/financeiro/categorias` | Todos | Plano de contas (`tipo`, `incluirInativas`) |
+| POST / PATCH | `/financeiro/categorias[/:id]` | Gestão | `{ nome, tipo, grupo }` / `{ nome?, grupo?, ativo? }` |
+| GET | `/financeiro/contas` | Todos | Contas (saldo inicial só para a gestão) |
+| POST / PATCH | `/financeiro/contas[/:id]` | Gestão | `{ nome, tipo, banco?, agencia?, numero?, saldoInicial?, dataSaldoInicial? }` |
+| POST | `/financeiro/lancamentos` | Todos | `{ tipo, descricao, categoriaId, valor, dataVencimento, dataCompetencia?, contaId?, condominioId?, contraparte?, documento?, observacoes?, repetirMeses?, pago?: { dataPagamento?, valorPago?, contaId? } }` |
+| GET | `/financeiro/lancamentos` | Todos | Filtros: `tipo`, `situacao`, `categoriaId`, `contaId`, `condominioId`, `campoData` + `de`/`ate`, `busca`; retorna totais |
+| GET / PATCH | `/financeiro/lancamentos/:id` | Todos | Detalhe / edição (somente pendentes) |
+| POST | `/financeiro/lancamentos/:id/baixa` | Todos | `{ dataPagamento?, valorPago?, contaId? }` |
+| POST | `/financeiro/lancamentos/:id/estorno` | Gestão | `{ motivo }` |
+| POST | `/financeiro/lancamentos/:id/cancelar` | Gestão | `{ motivo, incluirParcelasFuturas? }` |
+| GET | `/financeiro/relatorios/dre` | Gestão | `de`, `ate`, `regime=competencia\|caixa`, `condominioId` |
+| GET | `/financeiro/relatorios/fluxo-caixa` | Gestão | `deMes`, `ateMes` (AAAA-MM, até 36 meses) |
+| GET | `/financeiro/relatorios/saldos` | Gestão | `data` |
+| GET | `/financeiro/dashboard` | Gestão | `mes` (AAAA-MM) |
+
 ## Recomendações para produção
 
 - Servir somente via HTTPS atrás de um proxy reverso e ajustar `TRUST_PROXY_HOPS`.
@@ -151,11 +182,13 @@ Todas as rotas (exceto login/MFA/convite/refresh) exigem `Authorization: Bearer 
 
 ```
 migrations/001_init.sql   Schema, RLS, auditoria encadeada, privilégios
+migrations/002_financeiro.sql  Tipo de operação, plano de contas, contas, lançamentos
 src/app.ts                Fastify: segurança, CORS, limites, tratamento de erros
 src/db.ts                 Pool e transações com contexto de RLS
 src/auth/                 Autenticação por requisição, sessões e convites
 src/security/             Senhas, TOTP, criptografia, JWT, CPF/CNPJ
 src/routes/               auth, administradoras, usuarios, condominios, master
+src/routes/financeiro/    cadastros (categorias/contas), lançamentos, relatórios/painel
 src/scripts/              migrate, master:create
 tests/                    Testes unitários e de integração
 ```

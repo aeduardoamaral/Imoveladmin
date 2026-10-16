@@ -8,6 +8,10 @@ export interface DbContext {
   tenantId?: string | null;
 }
 
+// Colunas DATE voltam como texto AAAA-MM-DD (sem conversão de fuso horário).
+// NUMERIC já volta como texto, preservando centavos exatos.
+pg.types.setTypeParser(pg.types.builtins.DATE, (v) => v);
+
 let pool: pg.Pool | undefined;
 
 export function getPool(): pg.Pool {
@@ -42,7 +46,8 @@ export async function withTx<T>(ctx: DbContext, fn: (tx: Tx) => Promise<T>): Pro
   try {
     await client.query('BEGIN');
     await client.query(
-      `SELECT set_config('app.role', $1, true), set_config('app.tenant_id', $2, true)`,
+      `SELECT set_config('app.role', $1, true), set_config('app.tenant_id', $2, true),
+              set_config('TimeZone', 'America/Sao_Paulo', true)`,
       [ctx.role, ctx.role === 'tenant' ? ctx.tenantId : ''],
     );
     const result = await fn(client);

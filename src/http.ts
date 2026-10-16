@@ -60,3 +60,55 @@ export function buildUpdate(fields: Record<string, unknown>, columns: Record<str
   }
   return { sets, values };
 }
+
+/**
+ * Valor monetário em reais. Aceita número (1500.5) ou texto ("1500.50").
+ * Sempre convertido para texto com 2 casas: nunca fazemos contas com float.
+ */
+export const zMoney = z
+  .union([z.number(), z.string().trim()])
+  .transform((v, ctx) => {
+    const s = typeof v === 'number' ? (Number.isFinite(v) ? String(v) : '') : v;
+    if (!/^\d{1,12}(\.\d{1,2})?$/.test(s)) {
+      ctx.addIssue({ code: 'custom', message: 'Valor inválido (use até 2 casas decimais, ex.: 1500.50)' });
+      return z.NEVER;
+    }
+    return Number(s).toFixed(2);
+  });
+
+export const zPositiveMoney = zMoney.refine((v) => Number(v) > 0, 'O valor deve ser maior que zero');
+
+/** Data no formato AAAA-MM-DD. */
+export const zDate = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Data inválida (use AAAA-MM-DD)')
+  .refine((v) => {
+    const d = new Date(`${v}T00:00:00Z`);
+    return !Number.isNaN(d.getTime()) && d.toISOString().startsWith(v);
+  }, 'Data inválida');
+
+/** Mês no formato AAAA-MM. */
+export const zMes = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Mês inválido (use AAAA-MM)');
+
+/** Soma meses a uma data AAAA-MM-DD, ajustando para o último dia do mês quando necessário. */
+export function addMonths(date: string, months: number): string {
+  const [y, m, d] = date.split('-').map(Number) as [number, number, number];
+  const target = new Date(Date.UTC(y, m - 1 + months, 1));
+  const lastDay = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate();
+  target.setUTCDate(Math.min(d, lastDay));
+  return target.toISOString().slice(0, 10);
+}
+
+/** Booleano vindo da query string ("true"/"false"). */
+export const zQueryBool = z.enum(['true', 'false']).transform((v) => v === 'true');
+
+/** Último dia do mês AAAA-MM, como AAAA-MM-DD. */
+export function lastDayOfMonth(mes: string): string {
+  const [y, m] = mes.split('-').map(Number) as [number, number];
+  return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+}
+
+/** Soma dias a uma data AAAA-MM-DD. */
+export function addDays(date: string, days: number): string {
+  return new Date(Date.parse(`${date}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
+}

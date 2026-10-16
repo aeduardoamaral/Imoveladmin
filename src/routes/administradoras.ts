@@ -21,7 +21,7 @@ import {
 } from '../http.js';
 
 const COLUMNS = `id, razao_social, nome_fantasia, cnpj, email, telefone, cep, logradouro, numero,
-  complemento, bairro, cidade, uf, status, created_at, updated_at`;
+  complemento, bairro, cidade, uf, opera_condominios, opera_locacao, status, created_at, updated_at`;
 
 const dados = z.object({
   razaoSocial: trimmed(200),
@@ -36,6 +36,9 @@ const dados = z.object({
   bairro: optionalText(100),
   cidade: optionalText(100),
   uf: zUf.nullish(),
+  // Tipo de operação: condomínios, locação ou ambos (ao menos um).
+  operaCondominios: z.boolean().default(true),
+  operaLocacao: z.boolean().default(false),
 });
 
 const UPDATE_COLUMNS = {
@@ -51,6 +54,8 @@ const UPDATE_COLUMNS = {
   bairro: 'bairro',
   cidade: 'cidade',
   uf: 'uf',
+  operaCondominios: 'opera_condominios',
+  operaLocacao: 'opera_locacao',
 };
 
 export async function administradoraRoutes(app: FastifyInstance): Promise<void> {
@@ -60,26 +65,28 @@ export async function administradoraRoutes(app: FastifyInstance): Promise<void> 
   app.post('/administradoras', { preHandler: [requireRoles('MASTER'), forbidImpersonation] }, async (req, reply) => {
     const p = requirePrincipal(req);
     const body = dados
-      .extend({
+      .refine((d) => d.operaCondominios || d.operaLocacao, 'A administradora deve operar com condomínios, locação ou ambos')
+      .and(z.object({
         gestor: z.object({
           nome: trimmed(150),
           email: zEmail,
           cpf: zCpf.nullish(),
           telefone: zTelefone.nullish(),
         }),
-      })
+      }))
       .parse(req.body);
 
     const result = await withTx(dbContext(p), async (tx) => {
       const { rows } = await tx.query(
         `INSERT INTO administradoras (razao_social, nome_fantasia, cnpj, email, telefone, cep, logradouro,
-                                      numero, complemento, bairro, cidade, uf, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING ${COLUMNS}`,
+                                      numero, complemento, bairro, cidade, uf, opera_condominios, opera_locacao, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING ${COLUMNS}`,
         [body.razaoSocial, body.nomeFantasia ?? null, body.cnpj, body.email, body.telefone ?? null, body.cep ?? null,
           body.logradouro ?? null, body.numero ?? null, body.complemento ?? null, body.bairro ?? null,
-          body.cidade ?? null, body.uf ?? null, p.userId],
+          body.cidade ?? null, body.uf ?? null, body.operaCondominios, body.operaLocacao, p.userId],
       );
       const adm = rows[0];
+      await tx.query(`SELECT seed_plano_contas($1)`, [adm.id]);
       const { rows: urows } = await tx.query(
         `INSERT INTO users (administradora_id, nome, email, cpf, telefone, role, status, created_by)
          VALUES ($1, $2, $3, $4, $5, 'ADMIN_GESTOR', 'PENDENTE', $6)
@@ -139,7 +146,11 @@ export async function administradoraRoutes(app: FastifyInstance): Promise<void> 
   app.patch('/administradoras/:id', { preHandler: [requireRoles('MASTER'), forbidImpersonation] }, async (req) => {
     const p = requirePrincipal(req);
     const { id } = zIdParam.parse(req.params);
-    const body = dados.partial().strict().parse(req.body);
+    const body = dados
+      .extend({ operaCondominios: z.boolean().optional(), operaLocacao: z.boolean().optional() })
+      .partial()
+      .strict()
+      .parse(req.body);
     return withTx(dbContext(p), async (tx) => {
       const { sets, values } = buildUpdate(body, UPDATE_COLUMNS, 2);
       if (!sets.length) {
